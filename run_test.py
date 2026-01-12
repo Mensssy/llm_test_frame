@@ -48,7 +48,7 @@ class TestRunner:
                 for i, sample in enumerate(self.loader):
                     if max_samples and i >= max_samples:
                         break
-                        
+                    
                     prediction = self.engine.generate(sample["input_ids"], max_new_tokens=output_len)
                     
                     record = {
@@ -190,7 +190,7 @@ class TestRunner:
 
 
 def run_test_suite(engine, loader, target_tests, target_layers, 
-                 model_name="model", test_types=None, decode_save_layers=None, decode_len=None, dataset="wiki"):
+                 model_name="model", test_types=None, decode_save_layers=None, decode_len=None, output_len=16, dataset="wiki"):
     """
     运行完整的测试套件
     
@@ -216,7 +216,7 @@ def run_test_suite(engine, loader, target_tests, target_layers,
     
     for test_type in test_types:
         if test_type == 'f1':
-            runner.run_f1_test(target_tests, target_layers)
+            runner.run_f1_test(target_tests, target_layers, output_len=output_len)
         elif test_type == 'ppl':
             runner.run_ppl_test(target_tests, target_layers)
         elif test_type == 'size':

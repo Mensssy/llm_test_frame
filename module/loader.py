@@ -190,3 +190,95 @@ class TriviaQALoader:
                 "question": prompt_text,
                 "ground_truths": ground_truths
             }
+
+
+class NarrativeQALoader:
+    def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen"):
+        """
+        TriviaQA数据集加载器
+        
+        Args:
+            tokenizer: 分词器
+            file_path: 本地parquet文件路径
+            use_context: 是否在Prompt中加入维基百科上下文
+            max_samples: 仅加载前N条数据
+        """
+        self.tokenizer = tokenizer
+        self.use_context = use_context
+        self.model=model
+
+        print(f"[Data] Loading local file: {file_path}")
+        
+        self.dataset = load_dataset(
+            "parquet", 
+            data_files={"test": file_path}, 
+            split="test"
+        )
+        
+        if max_samples:
+            print(f"[Data] Truncating to {max_samples} samples.")
+            self.dataset = self.dataset.select(range(max_samples))
+            
+        print(f"[Data] Ready. Total samples loaded: {len(self.dataset)}")
+
+    def _format_prompt(self, question, context=""):
+        """
+        构造Prompt格式
+        """
+        if self.use_context and context:
+            return f"Read the following context and answer the question.Give only the final answer.Do not include any explanation, background, or additional text.\nContext: {context}\n\nQuestion: {question}\nAnswer:"
+        else:
+            return f"Please answer the following question.Give only the final answer.Do not include any explanation, background, or additional text.\nQuestion:{question}\nAnswer:"
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __iter__(self):
+        idx = 0
+        for sample in self.dataset:
+            question = sample['question']['text']
+            question_id = idx
+            
+            ground_truths = [s['text'] for s in sample['answers']]
+
+            context_text = ""
+            if self.use_context:
+                if sample.get('document') and len(sample['document']['summary']['text']) > 0:
+                    context_text = sample['document']['summary']['text']
+                    context_text = context_text[:8192] 
+
+            prompt_text = self._format_prompt(question, context_text)
+            
+            if self.model == "glm":
+                message = [
+                    {"role":"user", "content": prompt_text}
+                ]
+                input_ids = self.tokenizer.apply_chat_template(message,
+                                add_generation_prompt=True, 
+                                return_tensors="pt")
+            elif self.model == "qwen_moe":
+                message = [
+                    {"role": "user", "content": prompt_text}
+                ]
+                input_ids = self.tokenizer.apply_chat_template(message,
+                                add_generation_prompt=True, 
+                                enable_thinking=False,
+                                return_tensors="pt")
+            elif self.model == "llama":
+                message = [
+                    {"role":"user", "content": prompt_text}
+                ]
+                input_ids = self.tokenizer.apply_chat_template(message,
+                                add_generation_prompt=True, 
+                                return_tensors="pt")
+            else:
+                input_ids = self.tokenizer(prompt_text, return_tensors="pt").input_ids
+                
+            idx+=1
+
+            yield {
+                "id": question_id,
+                "input_ids": input_ids,
+                "question": prompt_text,
+                "ground_truths": ground_truths
+            }

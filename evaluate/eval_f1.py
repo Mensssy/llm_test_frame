@@ -158,4 +158,4 @@ def evaluate_folder(folder_path):
         print("No valid results computed.")
 
 if __name__ == "__main__":
-    evaluate_folder("bak/")
+    evaluate_folder("output/f1/trvia_qa/glm")

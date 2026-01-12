@@ -397,7 +397,7 @@ class BaseEngineMulti:
                         "layer2_hid": self.hid2.cpu(),
                     })
         
-        return self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        return self.tokenizer.decode(generated_ids, skip_special_tokens=False)
 
     def calculate_perplexity(self, input_ids, stride=512, max_length=None):
         """
