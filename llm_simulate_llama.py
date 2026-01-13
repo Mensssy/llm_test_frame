@@ -12,7 +12,7 @@ def main():
     TEST_MODEL = "llama"
     MODEL_PATH = "/home/share/models/Llama-4-Scout-17B-16E-Instruct" 
     WIKI_PATH = "datasets/wikitext-2-raw-v1/test-00000-of-00001.parquet"
-    TRIVIAQA_PATH = "datasets/trivia_qa-rc/validation*.parquet"
+    TRIVIAQA_PATH = "datasets/trivia_qa-rc/test*.parquet"
     TARGET_LAYERS = [4, 42]
     
     # 测试方法列表

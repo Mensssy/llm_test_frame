@@ -2,11 +2,26 @@ import json
 import string
 import re
 import os
+import glob
 from collections import Counter
 import numpy as np
 import pandas as pd
 
 # ================= 1. 定义计算函数 (保持不变) =================
+def clean_prediction_answer_prefix(s):
+    """
+    Remove Answer:/Answers:/answer: prefix from prediction string
+    Checks after stripping leading whitespace
+    """
+    # Strip leading whitespace first
+    s = s.lstrip()
+    # Define patterns to match (case-insensitive)
+    patterns = [r'^Answer:\s*', r'^Answers:\s*', r'^answer:\s*']
+    # Apply each pattern
+    for pattern in patterns:
+        s = re.sub(pattern, '', s, flags=re.IGNORECASE)
+    return s
+
 def normalize_answer(s):
     def remove_articles(text):
         return re.sub(r'\b(a|an|the)\b', ' ', text)
@@ -64,6 +79,8 @@ def evaluate_single_file(file_path):
                     if 'prediction' not in data or 'ground_truths' not in data:
                         continue
                     prediction = data['prediction']
+                    # Clean prediction by removing Answer: prefixes
+                    prediction = clean_prediction_answer_prefix(prediction)
                     ground_truths = data['ground_truths']
                     if isinstance(ground_truths, str):
                         ground_truths = [ground_truths]
@@ -125,23 +142,26 @@ def print_pretty_table(df):
               f"{row['Exact Match']:>{w_em}.2f}")
     print("-" * len(header))
 
-def evaluate_folder(folder_path):
+def evaluate_files_with_pattern(file_pattern):
+    """
+    Evaluate files matching a glob pattern
+    Args:
+        file_pattern: Glob pattern (e.g., "output/f1/trvia_qa/glm*.json")
+    """
     results = []
-    print(f"Scanning folder: {folder_path} ...")
+    print(f"Scanning files with pattern: {file_pattern} ...")
     
-    if not os.path.exists(folder_path):
-        print(f"Error: Folder '{folder_path}' does not exist.")
-        return
-
-    files = [f for f in os.listdir(folder_path) if f.endswith(('.json', '.jsonl'))]
+    # Use glob to find matching files
+    matched_files = glob.glob(file_pattern)
     
-    if not files:
-        print("No .json files found.")
+    if not matched_files:
+        print(f"No files found matching pattern: {file_pattern}")
         return
-
-    for file_name in files:
-        full_path = os.path.join(folder_path, file_name)
-        stats = evaluate_single_file(full_path)
+    
+    print(f"Found {len(matched_files)} file(s)")
+    
+    for file_path in matched_files:
+        stats = evaluate_single_file(file_path)
         if stats:
             results.append(stats)
     
@@ -158,4 +178,11 @@ def evaluate_folder(folder_path):
         print("No valid results computed.")
 
 if __name__ == "__main__":
-    evaluate_folder("output/f1/trvia_qa/glm")
+    # Example: Use glob pattern to match specific files
+    # Pattern examples:
+    # - "output/f1/trvia_qa/glm*.json" - files starting with glm
+    # - "output/f1/narrative_qa/*.jsonl" - all jsonl files
+    # - "output/f1/**/qwen*.json" - qwen files in any subdirectory
+    
+    pattern = "output/f1/trvia_qa/glm*.json"
+    evaluate_files_with_pattern(pattern)
