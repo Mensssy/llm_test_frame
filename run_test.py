@@ -44,7 +44,7 @@ class TestRunner:
             self.engine.register_layer_hooks(edit_config)
             
             output_file = f"./output/f1/{self.dataset}/{self.model_name}_{test}_{datetime.now().strftime('%m-%d_%H%M')}.json"
-            with open(output_file, "w", encoding='utf-8') as f:
+            with open(output_file, "a", encoding='utf-8') as f:
                 for i, sample in enumerate(self.loader):
                     if max_samples and i >= max_samples:
                         break

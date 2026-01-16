@@ -104,7 +104,7 @@ class WikitextLoader:
                 yield self.input_ids[:, start:end]
 
 class TriviaQALoader:
-    def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen"):
+    def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen", start_index=0):
         """
         TriviaQA数据集加载器
         
@@ -113,10 +113,12 @@ class TriviaQALoader:
             file_path: 本地parquet文件路径
             use_context: 是否在Prompt中加入维基百科上下文
             max_samples: 仅加载前N条数据
+            start_index: 从第几个问题开始（0-based）
         """
         self.tokenizer = tokenizer
         self.use_context = use_context
         self.model=model
+        self.start_index = start_index
 
         print(f"[Data] Loading local file: {file_path}")
         
@@ -125,6 +127,9 @@ class TriviaQALoader:
             data_files={"validation": file_path}, 
             split="validation"
         )
+        if self.start_index:
+            print(f"[Data] Skipping first {self.start_index} samples.")
+            self.dataset = self.dataset.select(range(self.start_index, len(self.dataset)))
         
         if max_samples:
             print(f"[Data] Truncating to {max_samples} samples.")
@@ -193,7 +198,7 @@ class TriviaQALoader:
 
 
 class NarrativeQALoader:
-    def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen"):
+    def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen", start_index=0):
         """
         TriviaQA数据集加载器
         
@@ -202,10 +207,12 @@ class NarrativeQALoader:
             file_path: 本地parquet文件路径
             use_context: 是否在Prompt中加入维基百科上下文
             max_samples: 仅加载前N条数据
+            start_index: 从第几个问题开始（0-based）
         """
         self.tokenizer = tokenizer
         self.use_context = use_context
         self.model=model
+        self.start_index = start_index
 
         print(f"[Data] Loading local file: {file_path}")
         
@@ -214,6 +221,9 @@ class NarrativeQALoader:
             data_files={"test": file_path}, 
             split="test"
         )
+        if self.start_index:
+            print(f"[Data] Skipping first {self.start_index} samples.")
+            self.dataset = self.dataset.select(range(self.start_index, len(self.dataset)))
         
         if max_samples:
             print(f"[Data] Truncating to {max_samples} samples.")
@@ -234,7 +244,7 @@ class NarrativeQALoader:
         return len(self.dataset)
 
     def __iter__(self):
-        idx = 0
+        idx = self.start_index
         for sample in self.dataset:
             question = sample['question']['text']
             question_id = idx

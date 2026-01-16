@@ -3,7 +3,7 @@ Llama LLM模拟器
 注意：此模型需要多卡，使用BaseEngineMulti
 """
 from module.engine import BaseEngineMulti
-from module.loader import WikitextLoader, TriviaQALoader
+from module.loader import WikitextLoader, TriviaQALoader, NarrativeQALoader
 from run_test import run_test_suite
 
 
@@ -12,7 +12,8 @@ def main():
     TEST_MODEL = "llama"
     MODEL_PATH = "/home/share/models/Llama-4-Scout-17B-16E-Instruct" 
     WIKI_PATH = "datasets/wikitext-2-raw-v1/test-00000-of-00001.parquet"
-    TRIVIAQA_PATH = "datasets/trivia_qa-rc/test*.parquet"
+    TRIVIAQA_PATH = "datasets/trivia_qa-rc/validation*.parquet"
+    NARRATIVEQA_PATH = "datasets/narrative_qa/test*.parquet"
     TARGET_LAYERS = [4, 42]
     
     # 测试方法列表
@@ -44,9 +45,15 @@ def main():
     #     seq_len=1024, 
     #     model=TEST_MODEL
     # ) 
-    loader = TriviaQALoader(
+    # loader = TriviaQALoader(
+    #     engine.tokenizer,
+    #     file_path=TRIVIAQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
+    loader = NarrativeQALoader(
         engine.tokenizer,
-        file_path=TRIVIAQA_PATH,
+        file_path=NARRATIVEQA_PATH,
         use_context=True,
         model=TEST_MODEL
     )
@@ -61,7 +68,7 @@ def main():
         target_layers=TARGET_LAYERS,
         model_name=TEST_MODEL,
         test_types=test_types,
-        dataset="trvia_qa"
+        dataset="narrative_qa"
     )
     
     print("\nAll tests completed!")
