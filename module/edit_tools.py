@@ -74,7 +74,7 @@ class EditTools:
                 mask = x.abs() > threshold_val
 
         return mask
-    
+
     def quantize_fp16_int8(self, tensor, group_size=128, outlier_ratio=0.005, mixed_precision=True, use_grouping=True, add_bytes=0):
         """
         INT8 量化函数：支持混合精度(百分位法)、分组量化。
@@ -554,163 +554,6 @@ class EditTools:
             x_recon.index_put_(tuple(outlier_indices.t()), outlier_values.float())
             
         return x_recon.to(torch.float16)
-    
-    def quantize_per_token_int4(self, tensor, outlier_ratio=0.01, mixed_precision=True, add_bytes=0):
-        """
-        INT4 Per-Token 量化函数：支持混合精度(百分位法)、位打包。
-        每一行 (Token) 使用一组 Scale/Min。
-        """
-        x = tensor.clone().float()
-        original_shape = x.shape
-        total_elements = x.numel()
-        
-        if mixed_precision and outlier_ratio > 0:
-            x_flat_abs = x.abs().flatten()
-            k = int(total_elements * outlier_ratio)
-            
-            if k > 0:
-                threshold_val = torch.kthvalue(x_flat_abs, total_elements - k).values
-                mask = x.abs() > threshold_val
-                
-                # 记录离群值及其位置
-                k = mask.sum().item() # 修正 k 为实际数量
-                outlier_values = x[mask].to(torch.float16)
-                outlier_indices = torch.nonzero(mask, as_tuple=False)
-            else:
-                mask = torch.zeros_like(x, dtype=torch.bool)
-                outlier_values = torch.empty(0)
-                outlier_indices = torch.empty(0)
-        else:
-            mask = torch.zeros_like(x, dtype=torch.bool)
-            k = 0
-            outlier_values = torch.empty(0)
-            outlier_indices = torch.empty(0)
-
-        x_flat_view = x.reshape(-1, original_shape[-1])
-        mask_flat_view = mask.reshape(-1, original_shape[-1])
-        
-        num_tokens, hidden_dim = x_flat_view.shape
-        
-        if hidden_dim % 2 != 0:
-            pad_len = 1
-            x_processed = torch.nn.functional.pad(x_flat_view, (0, pad_len))
-            mask_processed = torch.nn.functional.pad(mask_flat_view, (0, pad_len), value=False)
-        else:
-            pad_len = 0
-            x_processed = x_flat_view
-            mask_processed = mask_flat_view
-            
-        INF = torch.finfo(torch.float32).max / 2
-        x_for_min = x_processed.clone()
-        x_for_max = x_processed.clone()
-        
-        if mixed_precision:
-            # 排除离群值，避免它们拉伸量化范围
-            x_for_min[mask_processed] = INF
-            x_for_max[mask_processed] = -INF
-        
-        # 在 dim=1 (Hidden维度) 上计算
-        min_val = x_for_min.min(dim=1, keepdim=True)[0]
-        max_val = x_for_max.max(dim=1, keepdim=True)[0]
-        
-        # 边界情况处理：如果某一行全是离群值
-        if mixed_precision:
-            all_outlier = mask_processed.all(dim=1, keepdim=True)
-            min_val = torch.where(all_outlier, torch.zeros_like(min_val), min_val)
-            max_val = torch.where(all_outlier, torch.ones_like(max_val), max_val)
-            
-        range_val = (max_val - min_val).clamp(min=1e-6)
-        
-        base_bits = 4
-        max_q_val = 2**base_bits - 1  # 15
-        scale = range_val / max_q_val
-        
-        # 量化公式
-        x_q = ((x_processed - min_val) / scale).round().clamp(0, max_q_val)
-        x_q = x_q.to(torch.uint8)
-        
-        # 偶数列为高4位，奇数列为低4位
-        x_q_high = x_q[:, 0::2]
-        x_q_low = x_q[:, 1::2]
-        
-        # Packing: (High << 4) | Low
-        x_packed = (x_q_high << 4) | x_q_low
-
-        outlier_size = 0
-        if mixed_precision and k > 0:
-            outlier_values_bytes = k * 2  # FP16
-            coo_indices_bytes = k * 4     # INT32 indices usually
-            # 简单估算索引开销
-            outlier_size = outlier_values_bytes + coo_indices_bytes
-        
-        # 主体数据: 每个元素 0.5 字节
-        body_payload_bytes = (x_packed.numel()) # packed已经是uint8，每个存了2个元素
-        
-        # Metadata: 每个 Token 有 2 个 float16 (min_val, scale) -> 4 bytes
-        # num_tokens = x.shape[0] * x.shape[1]... actually num_tokens is rows here
-        body_metadata_bytes = num_tokens * 4 
-        
-        total_bytes = outlier_size + body_payload_bytes + body_metadata_bytes + add_bytes
-        
-        if total_bytes < 1024:
-            size_str = f"{total_bytes:.0f} B"
-        elif total_bytes < 1024**2:
-            size_str = f"{total_bytes/1024:.2f} KB"
-        else:
-            size_str = f"{total_bytes/(1024**2):.2f} MB"
-
-        quantized_data = {
-            "q_data": x_packed,
-            "scales": scale.half(),       # Shape: [Num_Tokens, 1]
-            "min_vals": min_val.half(),   # Shape: [Num_Tokens, 1]
-            "outlier_indices": outlier_indices,
-            "outlier_values": outlier_values,
-            "original_shape": original_shape,
-            "pad_len": pad_len,
-            "mixed_precision": mixed_precision
-        }
-        
-        return quantized_data, size_str
-
-    def dequantize_per_token_int4(self, quantized_data):
-        """
-        INT4 Per-Token 解量化函数。
-        """
-        x_packed = quantized_data["q_data"]
-        scale = quantized_data["scales"].float()
-        min_val = quantized_data["min_vals"].float()
-        outlier_indices = quantized_data["outlier_indices"]
-        outlier_values = quantized_data["outlier_values"]
-        original_shape = quantized_data["original_shape"]
-        pad_len = quantized_data["pad_len"]
-        mixed_precision = quantized_data["mixed_precision"]
-        
-        # x_packed shape: [Num_Tokens, Hidden_Processed // 2]
-
-        # 提取高 4 位
-        x_q_high = (x_packed >> 4) & 0x0F
-        # 提取低 4 位
-        x_q_low = x_packed & 0x0F
-        
-        # Stack并交织恢复顺序: [Num_Tokens, Hidden/2, 2] -> [Num_Tokens, Hidden]
-        x_q_stacked = torch.stack((x_q_high, x_q_low), dim=-1)
-        x_q = x_q_stacked.flatten(start_dim=1) 
-        
-        x_recon_flat = x_q.float() * scale + min_val
-        
-        if pad_len > 0:
-            actual_hidden = x_recon_flat.shape[1] - pad_len
-            x_recon_flat = x_recon_flat[:, :actual_hidden]
-        
-        # 恢复原始形状
-        x_recon = x_recon_flat.reshape(original_shape)
-        
-        if mixed_precision and outlier_indices.numel() > 0:
-            indices_tuple = tuple(outlier_indices.t())
-            # 使用 index_put_ 将高精度离群值填回原位
-            x_recon.index_put_(indices_tuple, outlier_values.float())
-            
-        return x_recon.to(torch.float16)
 
     def extract_outliers(self, tensor, ratio=0.01):
         x = tensor.clone()
@@ -848,9 +691,20 @@ class EditTools:
         )
         dequant_res = self.dequantize_int2_fp16(quant_res)
         return dequant_res, size_str
+
+    # Per-token quantization (no mixed precision, no grouping)
+    def simulate_quant_int8_per_token(self, hidden_states, add_bytes=0):
+        quant_res, size_str = self.quantize_per_token_int8(hidden_states, add_bytes)
+        dequant_res = self.dequantize_per_token_int8(quant_res)
+        return dequant_res, size_str
+
+    def simulate_quant_int2_per_token(self, hidden_states, add_bytes=0):
+        quant_res, size_str = self.quantize_per_token_int2(hidden_states, add_bytes)
+        dequant_res = self.dequantize_per_token_int2(quant_res)
+        return dequant_res, size_str
     
-    def simulate_quant_in4_per_token(self, hidden_states, mixed_precision, add_bytes=0):
-        quant_res, size_str = self.quantize_per_token_int4(hidden_states, 0.01, mixed_precision, add_bytes)
+    def simulate_quant_int4_per_token(self, hidden_states, add_bytes=0):
+        quant_res, size_str = self.quantize_per_token_int4(hidden_states, add_bytes)
         dequant_res = self.dequantize_per_token_int4(quant_res)
         return dequant_res, size_str
     
@@ -907,3 +761,250 @@ class EditTools:
         slope, intercept, size_bytes = self._fit_channel_affine(hidden1, hidden2)
         hidden1_transformed = self._apply_channel_affine(hidden1, slope, intercept)
         return hidden1_transformed, size_bytes, slope, intercept
+
+    # -----------------------------
+    # Per-token INT8/INT4/INT2 APIs
+    # -----------------------------
+    def quantize_per_token_int8(self, tensor, add_bytes=0):
+        x = tensor.clone().float()
+        original_shape = x.shape
+        total_elements = x.numel()
+
+        # Flatten to [seq_len, hidden]
+        x_flat = x.reshape(-1, original_shape[-1])
+        seq_len, hidden = x_flat.shape
+
+        # One group per token (no grouping)
+        effective_group_size = hidden
+        pad_len = 0
+
+        # Shape to [seq_len, 1, hidden] for dequant symmetry
+        x_groups = x_flat.view(seq_len, 1, hidden)
+
+        # Per-token min/max
+        min_val = x_groups.min(dim=-1, keepdim=True)[0]
+        max_val = x_groups.max(dim=-1, keepdim=True)[0]
+        range_val = (max_val - min_val).clamp(min=1e-6)
+
+        base_bits = 8
+        max_q_val = 2**base_bits - 1
+        scale = range_val / max_q_val
+
+        # Quantize
+        x_q = ((x_groups - min_val) / scale).round().clamp(0, max_q_val).to(torch.uint8)
+
+        # Size estimation
+        body_payload_bytes = total_elements  # 1 byte per element
+        body_metadata_bytes = min_val.numel() * 4  # store min/scale in FP16? dequant expects float; align with 4 bytes per value
+        total_bytes = body_payload_bytes + body_metadata_bytes + add_bytes
+
+        if total_bytes < 1024:
+            size_str = f"{total_bytes:.0f} B"
+        elif total_bytes < 1024**2:
+            size_str = f"{total_bytes/1024:.2f} KB"
+        else:
+            size_str = f"{total_bytes/(1024**2):.2f} MB"
+
+        quantized_data = {
+            "q_data": x_q,
+            "scales": scale.half(),
+            "min_vals": min_val.half(),
+            "outlier_indices": torch.empty(0, dtype=torch.long),
+            "outlier_values": torch.empty(0, dtype=torch.float16),
+            "original_shape": original_shape,
+            "pad_len": pad_len,
+            "mixed_precision": False,
+            "effective_group_size": effective_group_size,
+        }
+
+        return quantized_data, size_str
+
+    def dequantize_per_token_int8(self, quantized_data):
+        x_q = quantized_data["q_data"]
+        scale = quantized_data["scales"].float()
+        min_val = quantized_data["min_vals"].float()
+        original_shape = quantized_data["original_shape"]
+        pad_len = quantized_data["pad_len"]
+
+        x_recon_groups = x_q.float() * scale + min_val
+        seq_len = x_recon_groups.shape[0]
+        padded_hidden = x_recon_groups.shape[1] * x_recon_groups.shape[2]
+        x_recon_flat = x_recon_groups.view(seq_len, padded_hidden)
+
+        if pad_len > 0:
+            actual_hidden = padded_hidden - pad_len
+            x_recon_flat = x_recon_flat[:, :actual_hidden]
+
+        x_recon = x_recon_flat.reshape(original_shape)
+        return x_recon.to(torch.float16)
+
+    def quantize_per_token_int2(self, tensor, add_bytes=0):
+        x = tensor.clone().float()
+        original_shape = x.shape
+        total_elements = x.numel()
+
+        # Flatten
+        x_flat = x.reshape(-1, original_shape[-1])
+        seq_len, hidden = x_flat.shape
+
+        # Ensure group size multiple of 4 for packing
+        effective_group_size = hidden
+        if effective_group_size % 4 != 0:
+            effective_group_size += (4 - effective_group_size % 4)
+
+        pad_len = (effective_group_size - hidden % effective_group_size) % effective_group_size
+        if pad_len > 0:
+            x_flat = torch.nn.functional.pad(x_flat, (0, pad_len))
+
+        num_groups = x_flat.shape[1] // effective_group_size
+        x_groups = x_flat.view(seq_len, num_groups, effective_group_size)
+
+        # Per-token min/max (one group per token)
+        min_val = x_groups.min(dim=-1, keepdim=True)[0]
+        max_val = x_groups.max(dim=-1, keepdim=True)[0]
+        range_val = (max_val - min_val).clamp(min=1e-6)
+        max_q_val = 3
+        scale = range_val / max_q_val
+
+        x_q = ((x_groups - min_val) / scale).round().clamp(0, max_q_val).to(torch.uint8)
+
+        # Pack 4x2-bit into uint8
+        v0 = x_q[..., 0::4] << 6
+        v1 = x_q[..., 1::4] << 4
+        v2 = x_q[..., 2::4] << 2
+        v3 = x_q[..., 3::4]
+        x_packed = v0 | v1 | v2 | v3
+
+        body_payload_bytes = total_elements * 0.25
+        body_metadata_bytes = min_val.numel() * 4
+        total_bytes = body_payload_bytes + body_metadata_bytes + add_bytes
+
+        size_str = (
+            f"{total_bytes:.0f} B" if total_bytes < 1024 else (
+                f"{total_bytes/1024:.2f} KB" if total_bytes < 1024**2 else f"{total_bytes/(1024**2):.2f} MB"
+            )
+        )
+
+        quantized_data = {
+            "q_data": x_packed,
+            "scales": scale.half(),
+            "min_vals": min_val.half(),
+            "outlier_indices": torch.empty(0, dtype=torch.long),
+            "outlier_values": torch.empty(0, dtype=torch.float16),
+            "original_shape": original_shape,
+            "pad_len": pad_len,
+            "mixed_precision": False,
+            "effective_group_size": effective_group_size,
+        }
+
+        return quantized_data, size_str
+
+    def dequantize_per_token_int2(self, quantized_data):
+        x_packed = quantized_data["q_data"]
+        scale = quantized_data["scales"].float()
+        min_val = quantized_data["min_vals"].float()
+        original_shape = quantized_data["original_shape"]
+        pad_len = quantized_data["pad_len"]
+
+        v0 = (x_packed >> 6) & 0x03
+        v1 = (x_packed >> 4) & 0x03
+        v2 = (x_packed >> 2) & 0x03
+        v3 = x_packed & 0x03
+        x_q = torch.stack((v0, v1, v2, v3), dim=-1).flatten(start_dim=-2)
+
+        x_recon_groups = x_q.float() * scale + min_val
+        seq_len = x_recon_groups.shape[0]
+        padded_hidden = x_recon_groups.shape[1] * x_recon_groups.shape[2]
+        x_recon_flat = x_recon_groups.view(seq_len, padded_hidden)
+
+        if pad_len > 0:
+            actual_hidden = padded_hidden - pad_len
+            x_recon_flat = x_recon_flat[:, :actual_hidden]
+
+        x_recon = x_recon_flat.reshape(original_shape)
+        return x_recon.to(torch.float16)
+
+    def quantize_per_token_int4(self, tensor, add_bytes=0):
+        x = tensor.clone().float()
+        original_shape = x.shape
+        total_elements = x.numel()
+
+        # Flatten
+        x_flat = x.reshape(-1, original_shape[-1])
+        seq_len, hidden = x_flat.shape
+
+        # Ensure even group size for 4-bit packing
+        effective_group_size = hidden
+        if effective_group_size % 2 != 0:
+            effective_group_size += 1
+
+        pad_len = (effective_group_size - hidden % effective_group_size) % effective_group_size
+        if pad_len > 0:
+            x_flat = torch.nn.functional.pad(x_flat, (0, pad_len))
+
+        num_groups = x_flat.shape[1] // effective_group_size
+        x_groups = x_flat.view(seq_len, num_groups, effective_group_size)
+
+        # Per-token min/max
+        min_val = x_groups.min(dim=-1, keepdim=True)[0]
+        max_val = x_groups.max(dim=-1, keepdim=True)[0]
+        range_val = (max_val - min_val).clamp(min=1e-6)
+        max_q_val = 15  # 2^4 - 1
+        scale = range_val / max_q_val
+
+        x_q = ((x_groups - min_val) / scale).round().clamp(0, max_q_val).to(torch.uint8)
+
+        # Pack 2 nibbles into a byte
+        x_q_high = x_q[..., 0::2]
+        x_q_low = x_q[..., 1::2]
+        x_packed = (x_q_high << 4) | x_q_low
+
+        body_payload_bytes = total_elements * 0.5
+        body_metadata_bytes = min_val.numel() * 4
+        total_bytes = body_payload_bytes + body_metadata_bytes + add_bytes
+
+        if total_bytes < 1024:
+            size_str = f"{total_bytes:.0f} B"
+        elif total_bytes < 1024**2:
+            size_str = f"{total_bytes/1024:.2f} KB"
+        else:
+            size_str = f"{total_bytes/(1024**2):.2f} MB"
+
+        quantized_data = {
+            "q_data": x_packed,
+            "scales": scale.half(),
+            "min_vals": min_val.half(),
+            "outlier_indices": torch.empty(0, dtype=torch.long),
+            "outlier_values": torch.empty(0, dtype=torch.float16),
+            "original_shape": original_shape,
+            "pad_len": pad_len,
+            "mixed_precision": False,
+            "effective_group_size": effective_group_size,
+        }
+
+        return quantized_data, size_str
+
+    def dequantize_per_token_int4(self, quantized_data):
+        x_packed = quantized_data["q_data"]
+        scale = quantized_data["scales"].float()
+        min_val = quantized_data["min_vals"].float()
+        original_shape = quantized_data["original_shape"]
+        pad_len = quantized_data["pad_len"]
+
+        # Unpack high/low nibbles
+        x_q_high = (x_packed >> 4) & 0x0F
+        x_q_low = x_packed & 0x0F
+        x_q_stacked = torch.stack((x_q_high, x_q_low), dim=-1)
+        x_q = x_q_stacked.flatten(start_dim=-2)
+
+        x_recon_groups = x_q.float() * scale + min_val
+        seq_len = x_recon_groups.shape[0]
+        padded_hidden = x_recon_groups.shape[1] * x_recon_groups.shape[2]
+        x_recon_flat = x_recon_groups.view(seq_len, padded_hidden)
+
+        if pad_len > 0:
+            actual_hidden = padded_hidden - pad_len
+            x_recon_flat = x_recon_flat[:, :actual_hidden]
+
+        x_recon = x_recon_flat.reshape(original_shape)
+        return x_recon.to(torch.float16)

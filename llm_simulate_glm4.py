@@ -9,8 +9,9 @@ from run_test import run_test_suite
 def main():
     # 配置
     TEST_MODEL = "glm"
-    TEST_DATASET = "narrative_qa"
+    TEST_DATASET = "trvia_qa"
     MODEL_PATH = "/home/share/models/glm-4-9b-chat-1m"
+    MODEL_PATH = "/home/share/models/GLM-4-9B-0414"
     WIKI_PATH = "datasets/wikitext-2-raw-v1/test-00000-of-00001.parquet"
     TRIVIAQA_PATH = "datasets/trivia_qa-rc/validation*.parquet"
     NARRATIVEQA_PATH = "datasets/narrative_qa/test*.parquet"
@@ -18,16 +19,19 @@ def main():
     
     # 测试方法列表
     TARGET_TESTS = [
-        "Base",
-        "INT2_Delta_Group",
-        "INT2_Delta_Mix_Group",
-        "INT2_AffDelta_Mix_Group", 
-        "INT4_Delta_Group",
-        "INT4_Delta_Mix_Group",
+        # "Base",
+        # "INT4_Pertok",
+        # "INT4_AffDelta_Group",
         "INT4_AffDelta_Mix_Group",
-        "INT8_Delta_Group",
-        "INT8_Delta_Mix_Group",
+        "INT4_Mix_Group",
+        # "INT8_Pertok",
+        # "INT8_AffDelta_Group",
         "INT8_AffDelta_Mix_Group",
+        "INT8_Mix_Group",
+        # "INT2_Pertok",
+        # "INT2_AffDelta_Group",
+        "INT2_AffDelta_Mix_Group", 
+        "INT2_Mix_Group",
     ]
     
     # 初始化
@@ -57,7 +61,8 @@ def main():
     #     model=TEST_MODEL
     # )
     
-    test_types = ['ppl', 'size']
+    test_types = ['ppl','size']
+    # test_types = ['f1']
     
     print("Running test suite...")
     results = run_test_suite(
@@ -70,6 +75,26 @@ def main():
         output_len=64,
         dataset=TEST_DATASET
     )
+
+    # TEST_DATASET = "narrative_qa"
+    # loader = NarrativeQALoader(
+    #     engine.tokenizer,
+    #     file_path=NARRATIVEQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
+    
+    # print("Running test suite...")
+    # results = run_test_suite(
+    #     engine=engine,
+    #     loader=loader,
+    #     target_tests=TARGET_TESTS,
+    #     target_layers=TARGET_LAYERS,
+    #     model_name=TEST_MODEL,
+    #     test_types=test_types,
+    #     output_len=64,
+    #     dataset=TEST_DATASET
+    # )
     
     print("\nAll tests completed!")
 

@@ -14,13 +14,14 @@ class BaseEngineMulti:
     # 离群值检测配置
     OUTLIER_METHOD = "group_topk"  # 可选: "global_topk" 或 "group_topk"
     OUTLIER_GROUP_SIZE = 128       # 分组大小（仅在OUTLIER_METHOD="group_topk"时使用）
-    OUTLIER_K = 7                  # 每个group选择的top-k数量（仅在OUTLIER_METHOD="group_topk"时使用）
-    OUTLIER_RATIO = 0.01           # 离群值比例（仅在OUTLIER_METHOD="global_topk"时使用）
+    OUTLIER_K = 2                  # 每个group选择的top-k数量（仅在OUTLIER_METHOD="group_topk"时使用）
+    OUTLIER_RATIO = OUTLIER_K / OUTLIER_GROUP_SIZE           # 离群值比例（仅在OUTLIER_METHOD="global_topk"时使用）
     
     def __init__(self, model_path: str, device="cuda", model_type = "qwen"):
         self.device = device
         self.model_type = model_type
         print(f"Loading model from {model_path} to {self.device}...")
+            
         
         # 清理内存
         torch.cuda.empty_cache()
@@ -31,7 +32,7 @@ class BaseEngineMulti:
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="auto",
-                torch_dtype=torch.float16,     
+                dtype=torch.float16,     
                 attn_implementation="sdpa", 
                 trust_remote_code=True
             )
@@ -177,58 +178,44 @@ class BaseEngineMulti:
                 delta_hidden_states = self.hid2 - self.hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int8(delta_hidden_states, mixed_precision=False, use_group=True)
                 modified_hidden_states = dequant_hidden_states + self.hid1
-            elif edit_func == "INT8_AffDelta":
-                aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
-                aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
-                delta_hidden_states = self.hid2 - aff_hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int8(delta_hidden_states, mixed_precision=False, use_group=False, add_bytes=size_bytes)
-                modified_hidden_states = dequant_hidden_states + aff_hid1
             elif edit_func == "INT8_Delta_Mix_Group":
                 delta_hidden_states = self.hid2 - self.hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int8(delta_hidden_states, mixed_precision=True, use_group=True)
                 modified_hidden_states = dequant_hidden_states + self.hid1
+            elif edit_func == "INT8_AffDelta_Group":
+                aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
+                aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
+                delta_hidden_states = self.hid2 - aff_hid1_quant
+                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int8(delta_hidden_states, mixed_precision=False, use_group=True, add_bytes=size_bytes)
+                modified_hidden_states = dequant_hidden_states + aff_hid1
             elif edit_func == "INT8_AffDelta_Mix_Group":
                 aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
                 aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
                 delta_hidden_states = self.hid2 - aff_hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int8(delta_hidden_states, mixed_precision=True, use_group=True, add_bytes=size_bytes)
                 modified_hidden_states = dequant_hidden_states + aff_hid1
+            elif edit_func == "INT8_Pertok":
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_int8_per_token(hidden_states, add_bytes=0)
             elif edit_func == "INT4_Mix_Group":
                 modified_hidden_states, size_str = self.edit_tools.simulate_quant_int4(hidden_states, mixed_precision=True, use_group=True)
             elif edit_func == "INT4_Delta":
                 delta_hidden_states = self.hid2 - self.hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=False, use_group=False)
                 modified_hidden_states = dequant_hidden_states + self.hid1
-            elif edit_func == "INT4_Delta_Mix":
-                delta_hidden_states = self.hid2 - self.hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=True, use_group=False)
-                modified_hidden_states = dequant_hidden_states + self.hid1
             elif edit_func == "INT4_Delta_Group":
                 delta_hidden_states = self.hid2 - self.hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=False, use_group=True)
                 modified_hidden_states = dequant_hidden_states + self.hid1
-            elif edit_func == "INT4_AffDelta":
-                aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
-                aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
-                delta_hidden_states = self.hid2 - aff_hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=False, use_group=False, add_bytes=size_bytes)
-                modified_hidden_states = dequant_hidden_states + aff_hid1
-            elif edit_func == "INT4_AffDelta_Mix":
-                aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
-                aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
-                delta_hidden_states = self.hid2 - aff_hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=True, use_group=False, add_bytes=size_bytes)
-                modified_hidden_states = dequant_hidden_states + aff_hid1
+            elif edit_func == "INT4_Delta_Mix_Group":
+                delta_hidden_states = self.hid2 - self.hid1_quant
+                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=True, use_group=True)
+                modified_hidden_states = dequant_hidden_states + self.hid1
             elif edit_func == "INT4_AffDelta_Group":
                 aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
                 aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
                 delta_hidden_states = self.hid2 - aff_hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=False, use_group=True, add_bytes=size_bytes)
                 modified_hidden_states = dequant_hidden_states + aff_hid1
-            elif edit_func == "INT4_Delta_Mix_Group":
-                delta_hidden_states = self.hid2 - self.hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=True, use_group=True)
-                modified_hidden_states = dequant_hidden_states + self.hid1
             elif edit_func == "INT4_AffDelta_Mix_Group":
                 aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
                 aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
@@ -236,60 +223,35 @@ class BaseEngineMulti:
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int4(delta_hidden_states, mixed_precision=True, use_group=True, add_bytes=size_bytes)
                 modified_hidden_states = dequant_hidden_states + aff_hid1
             elif edit_func == "INT4_Pertok":
-                modified_hidden_states, size_str = self.edit_tools.simulate_quant_in4_per_token(hidden_states, mixed_precision=False)
-            elif edit_func == "INT4_AffDelta_Premix":
-                # 本地h1提取离群值
-                h1_mix, _, _ = self.edit_tools.extract_outliers(self.hid1, ratio=0.01)
-                # 云端h1q和h2提取离群值
-                h1q_mix, _, _ = self.edit_tools.extract_outliers(self.hid1_quant, ratio=0.01)
-                h2_mix, h2_outlier_info, h2_outlier_size = self.edit_tools.extract_outliers(self.hid2, ratio=0.01)
-                
-                # 云端对h1q仿射变换，与h2做差
-                h1q_mix_trans, aff_size, slope, intercept = self.edit_tools.affine_transform(h1q_mix, h2_mix)
-                aff_h = h2_mix - h1q_mix_trans
-                
-                # 分组量化差值张量，同时还要传输 仿射变换参数 和 h2离群值信息
-                dequant_aff_h, size_str = self.edit_tools.simulate_quant_int4(aff_h, mixed_precision=False, use_group=True, add_bytes=aff_size + h2_outlier_size)
-                
-                # 本地复原h2
-                h1_mix_trans = self.edit_tools._apply_channel_affine(h1_mix, slope, intercept)
-                h2_recon = dequant_aff_h + h1_mix_trans
-                h2_recon = self.edit_tools.restore_outliers(h2_recon, h2_outlier_info)
-                modified_hidden_states = h2_recon
-            elif edit_func == "INT4_AffDelta_Premix_U":
-                h1q_mix, h2_mix, union_indices, h2_outlier_values, mix_size = self.edit_tools.extract_union_outliers(
-                    self.hid1_quant, self.hid2, ratio_A=0.01, ratio_B=0.01)
-                
-                # 云端对h1q仿射变换，与h2做差
-                h1q_mix_trans, aff_size, slope, intercept = self.edit_tools.affine_transform(h1q_mix, h2_mix)
-                aff_h = h2_mix - h1q_mix_trans
-                
-                dequant_aff_h, size_str = self.edit_tools.simulate_quant_int4(aff_h, mixed_precision=False, use_group=True, add_bytes=aff_size + mix_size)
-                
-                h1_mix = self.edit_tools.remove_outliers_by_indices(self.hid1, union_indices)
-                h1_mix_trans = self.edit_tools._apply_channel_affine(h1_mix, slope, intercept)
-                h2_recon = dequant_aff_h + h1_mix_trans
-                h2_recon = self.edit_tools.restore_outliers(h2_recon, {
-                    "outlier_values": h2_outlier_values,
-                    "outlier_indices": union_indices
-                })
-                modified_hidden_states = h2_recon
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_int4_per_token(hidden_states, add_bytes=0)
+            elif edit_func == "INT2_Mix_Group":
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_int2(hidden_states, mixed_precision=True, use_group=True)
+                if layer_idx == self.target_layer1:
+                    self.hid1_quant = modified_hidden_states.detach().to("cpu")
+            elif edit_func == "INT2_Delta_Group":
+                delta_hidden_states = self.hid2 - self.hid1_quant
+                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int2(delta_hidden_states, mixed_precision=False, use_group=True)
+                modified_hidden_states = dequant_hidden_states + self.hid1
             elif edit_func == "INT2_Delta_Mix_Group":
                 delta_hidden_states = self.hid2 - self.hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int2(
                     delta_hidden_states, mixed_precision=True, use_group=True
                 )
                 modified_hidden_states = dequant_hidden_states + self.hid1
-            elif edit_func == "INT2_Delta_Group":
-                delta_hidden_states = self.hid2 - self.hid1_quant
-                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int2(delta_hidden_states, mixed_precision=False, use_group=True)
-                modified_hidden_states = dequant_hidden_states + self.hid1
+            elif edit_func == "INT2_AffDelta_Group":
+                aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
+                aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
+                delta_hidden_states = self.hid2 - aff_hid1_quant
+                dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int2(delta_hidden_states, mixed_precision=False, use_group=True, add_bytes=size_bytes)
+                modified_hidden_states = dequant_hidden_states + aff_hid1
             elif edit_func == "INT2_AffDelta_Mix_Group":
                 aff_hid1_quant, size_bytes, slope, intercept = self.edit_tools.affine_transform(self.hid1_quant, self.hid2)
                 aff_hid1 = self.edit_tools._apply_channel_affine(self.hid1, slope, intercept)
                 delta_hidden_states = self.hid2 - aff_hid1_quant
                 dequant_hidden_states, size_str = self.edit_tools.simulate_quant_int2(delta_hidden_states, mixed_precision=True, use_group=True, add_bytes=size_bytes)
                 modified_hidden_states = dequant_hidden_states + aff_hid1
+            elif edit_func == "INT2_Pertok":
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_int2_per_token(hidden_states, add_bytes=0)
             elif edit_func == "Base":
                 modified_hidden_states = None
                 size_str = f"{(hidden_states.numel() * hidden_states.element_size()) / (1024 * 1024)} MB"
@@ -408,9 +370,6 @@ class BaseEngineMulti:
         return self.tokenizer.decode(generated_ids, skip_special_tokens=False)
 
     def calculate_perplexity(self, input_ids, stride=512, max_length=None):
-        """
-        使用滑动窗口策略计算 PPL (修复多卡设备不匹配问题版)
-        """
         if max_length is None:
             max_length = getattr(self.model.config, "max_position_embeddings", 2048)
         
