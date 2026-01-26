@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from tqdm import tqdm
 import gc
 from .edit_tools import EditTools
@@ -12,7 +12,7 @@ class BaseEngineMulti:
     适用于Qwen-MoE等需要多GPU的模型
     """
     # 离群值检测配置
-    OUTLIER_METHOD = "group_topk"  # 可选: "global_topk" 或 "group_topk"
+    OUTLIER_METHOD = "global_topk"  # 可选: "global_topk" 或 "group_topk"
     OUTLIER_GROUP_SIZE = 128       # 分组大小（仅在OUTLIER_METHOD="group_topk"时使用）
     OUTLIER_K = 2                  # 每个group选择的top-k数量（仅在OUTLIER_METHOD="group_topk"时使用）
     OUTLIER_RATIO = OUTLIER_K / OUTLIER_GROUP_SIZE           # 离群值比例（仅在OUTLIER_METHOD="global_topk"时使用）
@@ -28,11 +28,11 @@ class BaseEngineMulti:
         gc.collect()
 
         # 加载模型 - 使用device_map自动分布到多卡
-        if model_type == "glm":
+        if model_type == "phi":
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="auto",
-                dtype=torch.float16,     
+                torch_dtype=torch.float16,     
                 attn_implementation="sdpa", 
                 trust_remote_code=True
             )
@@ -92,6 +92,12 @@ class BaseEngineMulti:
             elif self.model_type == "llama":
                 self.stop_token_ids.add(self.tokenizer.eos_token_id)
                 for token in ["<|eot|>", "<|end_of_text|>","<|eom|>"]:
+                    ids = self.tokenizer.convert_tokens_to_ids(token)
+                    if isinstance(ids, int):
+                        self.stop_token_ids.add(ids)
+            elif self.model_type == "phi":
+                self.stop_token_ids.add(self.tokenizer.eos_token_id)
+                for token in ["<|endoftext|>", "<|end|>", "<|user|>", "<|assistant|>", "<|system|>"]:
                     ids = self.tokenizer.convert_tokens_to_ids(token)
                     if isinstance(ids, int):
                         self.stop_token_ids.add(ids)
@@ -340,6 +346,8 @@ class BaseEngineMulti:
         self.hid_rcd = []
         generated_ids = []
         past_key_values = None
+        if self.model_type == "phi":
+            past_key_values = DynamicCache()
         curr_input = input_ids 
             
         for i in range(max_new_tokens):

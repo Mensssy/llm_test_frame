@@ -186,7 +186,15 @@ class TriviaQALoader:
                 input_ids = self.tokenizer.apply_chat_template(message,
                                 add_generation_prompt=True, 
                                 return_tensors="pt")
+            elif self.model == "phi":
+                message = [
+                    {"role":"user", "content": prompt_text}
+                ]
+                input_ids = self.tokenizer.apply_chat_template(message,
+                                add_generation_prompt=True, 
+                                return_tensors="pt")
             else:
+                print(f"Unkown model type: {self.model}, using default tokenization.")
                 input_ids = self.tokenizer(prompt_text, return_tensors="pt").input_ids
 
             yield {
@@ -213,7 +221,6 @@ class NarrativeQALoader:
         self.use_context = use_context
         self.model=model
         self.start_index = start_index
-
         print(f"[Data] Loading local file: {file_path}")
         
         self.dataset = load_dataset(
@@ -281,7 +288,15 @@ class NarrativeQALoader:
                 input_ids = self.tokenizer.apply_chat_template(message,
                                 add_generation_prompt=True, 
                                 return_tensors="pt")
+            elif self.model == "phi":
+                message = [
+                    {"role":"user", "content": prompt_text}
+                ]
+                input_ids = self.tokenizer.apply_chat_template(message,
+                                add_generation_prompt=True, 
+                                return_tensors="pt")
             else:
+                print(f"Unkown model type: {self.model}, using default tokenization.")
                 input_ids = self.tokenizer(prompt_text, return_tensors="pt").input_ids
                 
             idx+=1

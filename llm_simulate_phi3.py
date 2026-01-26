@@ -8,29 +8,28 @@ from run_test import run_test_suite
 
 def main():
     # 配置
-    TEST_MODEL = "glm"
-    TEST_DATASET = "trvia_qa"
-    MODEL_PATH = "/home/share/models/glm-4-9b-chat-1m"
-    MODEL_PATH = "/home/share/models/GLM-4-9B-0414"
+    TEST_MODEL = "phi"
+    TEST_DATASET = "wikitext"
+    MODEL_PATH = "/home/share/models/Phi-3.5-MoE-instruct"
     WIKI_PATH = "datasets/wikitext-2-raw-v1/test-00000-of-00001.parquet"
     TRIVIAQA_PATH = "datasets/trivia_qa-rc/validation*.parquet"
     NARRATIVEQA_PATH = "datasets/narrative_qa/test*.parquet"
-    TARGET_LAYERS = [4, 34]
+    TARGET_LAYERS = [4, 26]
     
     # 测试方法列表
     TARGET_TESTS = [
         # "Base",
-        "INT4_Pertok",
-        "INT4_AffDelta_Group",
-        # "INT4_AffDelta_Mix_Group",
-        "INT4_Mix_Group",
-        "INT8_Pertok",
-        "INT8_AffDelta_Group",
-        # "INT8_AffDelta_Mix_Group",
+        # "INT8_Pertok",
+        # "INT8_AffDelta_Group",
+        "INT8_AffDelta_Mix_Group",
         "INT8_Mix_Group",
-        "INT2_Pertok",
-        "INT2_AffDelta_Group",
-        # "INT2_AffDelta_Mix_Group", 
+        # "INT4_Pertok",
+        # "INT4_AffDelta_Group",
+        "INT4_AffDelta_Mix_Group",
+        "INT4_Mix_Group",
+        # "INT2_Pertok",
+        # "INT2_AffDelta_Group",
+        "INT2_AffDelta_Mix_Group", 
         "INT2_Mix_Group",
     ]
     
@@ -42,18 +41,18 @@ def main():
     
     # 初始化数据加载器
     print("Initializing data loader...")
-    # loader = WikitextLoader(
-    #     engine.tokenizer, 
-    #     file_path=WIKI_PATH, 
-    #     seq_len=1024, 
-    #     model=TEST_MODEL
-    # )
-    loader = TriviaQALoader(
-        engine.tokenizer,
-        file_path=TRIVIAQA_PATH,
-        use_context=True,
+    loader = WikitextLoader(
+        engine.tokenizer, 
+        file_path=WIKI_PATH, 
+        seq_len=1024, 
         model=TEST_MODEL
     )
+    # loader = TriviaQALoader(
+    #     engine.tokenizer,
+    #     file_path=TRIVIAQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
     # loader = NarrativeQALoader(
     #     engine.tokenizer,
     #     file_path=NARRATIVEQA_PATH,
@@ -61,8 +60,8 @@ def main():
     #     model=TEST_MODEL
     # )
     
-    # test_types = ['ppl','size']
-    test_types = ['f1']
+    # test_types = ['f1']
+    test_types = ['ppl', 'size']
     
     print("Running test suite...")
     results = run_test_suite(
@@ -75,7 +74,6 @@ def main():
         output_len=64,
         dataset=TEST_DATASET
     )
-
     
     print("\nAll tests completed!")
 
