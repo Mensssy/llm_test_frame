@@ -204,6 +204,13 @@ class TriviaQALoader:
                 "ground_truths": ground_truths
             }
 
+    def get_batches(self):
+        """
+        生成器：按样本产出 input_ids
+        """
+        for item in self:
+            yield item["input_ids"]
+
 
 class NarrativeQALoader:
     def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen", start_index=0):
@@ -307,3 +314,10 @@ class NarrativeQALoader:
                 "question": prompt_text,
                 "ground_truths": ground_truths
             }
+
+    def get_batches(self):
+        """
+        生成器：按样本产出 input_ids
+        """
+        for item in self:
+            yield item["input_ids"]

@@ -41,7 +41,7 @@ def main():
     
     # 运行测试套件
     # 可选的测试类型: 'f1', 'ppl', 'size', 'entropy', 'similarity', 'tensor_save'
-    test_types = ['ppl']
+    test_types = ['tensor_save']
     
     print("Running test suite...")
     results = run_test_suite(

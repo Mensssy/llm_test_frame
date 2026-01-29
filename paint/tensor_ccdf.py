@@ -265,7 +265,7 @@ def plot_dual_smooth_ccdf(tensor1, tensor2,
 
 # --- 使用示例 ---
 if __name__ == "__main__":
-    tensors = load_file("/home/share/tensor_data/qwen32b_prefill_tensors.safetensors")
+    tensors = load_file("output/tensor_data/qwen_prefill_tensors.safetensors")
     # 画一个Tensor，曲线不作平滑
     # use_log_x 代表x轴是否使用log scale
     plot_continuous_ccdf(tensors["input3.et_size7.cb_output"], use_log_x=True)

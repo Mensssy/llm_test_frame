@@ -3,6 +3,7 @@ import string
 import re
 import os
 import glob
+import fnmatch
 from collections import Counter
 import numpy as np
 import pandas as pd
@@ -113,34 +114,20 @@ def evaluate_single_file(file_path):
 
 # ================= 3. 批量处理逻辑 (主要修改了这里) =================
 
-def print_pretty_table(df):
+def print_markdown_table(df):
     """
-    自定义打印表格：
-    - Test: 左对齐
-    - 其他数值列: 右对齐
+    输出 Markdown 格式表格
     """
-    # 1. 动态计算第一列的宽度 (取最长名字 和 表头长度 的最大值，再加一点缓冲)
-    max_name_len = max(df["Test"].apply(str).apply(len).max(), len("Test")) + 4
-    
-    # 2. 定义其他列的宽度
-    w_samples = 10
-    w_f1 = 12
-    w_em = 12
-    
-    # 3. 打印表头 (注意 < 表示左对齐, > 表示右对齐)
-    # Test 用 < (左对齐), 其他用 > (右对齐)
-    header = f"{'Test':<{max_name_len}} {'Samples':>{w_samples}} {'Avg F1':>{w_f1}} {'Exact Match':>{w_em}}"
-    print("-" * len(header))
-    print(header)
-    print("-" * len(header))
-    
-    # 4. 打印每一行数据
+    headers = ["Test", "Samples", "Avg F1", "Exact Match"]
+    print(f"| {' | '.join(headers)} |")
+    print(f"| {' | '.join(['---'] * len(headers))} |")
     for _, row in df.iterrows():
-        print(f"{row['Test']:<{max_name_len}} "
-              f"{row['Samples']:>{w_samples}} "
-              f"{row['Avg F1']:>{w_f1}.2f} "
-              f"{row['Exact Match']:>{w_em}.2f}")
-    print("-" * len(header))
+        print(
+            f"| {row['Test']} | "
+            f"{int(row['Samples'])} | "
+            f"{row['Avg F1']:.2f} | "
+            f"{row['Exact Match']:.2f} |"
+        )
 
 def evaluate_files_with_pattern(file_pattern):
     """
@@ -151,8 +138,24 @@ def evaluate_files_with_pattern(file_pattern):
     results = []
     print(f"Scanning files with pattern: {file_pattern} ...")
     
-    # Use glob to find matching files
-    matched_files = glob.glob(file_pattern)
+    # Use directory listing order when pattern targets a single directory
+    matched_files = []
+    base_dir = os.path.dirname(file_pattern) or "."
+    pattern_name = os.path.basename(file_pattern)
+
+    if "**" not in file_pattern and os.path.isdir(base_dir):
+        try:
+            for name in os.listdir(base_dir):
+                if fnmatch.fnmatch(name, pattern_name):
+                    matched_files.append(os.path.join(base_dir, name))
+        except OSError:
+            matched_files = glob.glob(file_pattern)
+    else:
+        # Use glob for recursive or complex patterns
+        matched_files = glob.glob(file_pattern, recursive=True)
+
+    # Sort by filename string order
+    matched_files = sorted(matched_files, key=lambda p: os.path.basename(p))
     
     if not matched_files:
         print(f"No files found matching pattern: {file_pattern}")
@@ -167,12 +170,12 @@ def evaluate_files_with_pattern(file_pattern):
     
     if results:
         df = pd.DataFrame(results)
-        # 按 F1 分数降序排列
-        df = df.sort_values(by="Avg F1", ascending=False).reset_index(drop=True)
-        
-        # 调用自定义打印函数
+        # 保持读取顺序
+        df = df.reset_index(drop=True)
+
+        # 输出 Markdown 表格
         print("")
-        print_pretty_table(df)
+        print_markdown_table(df)
         print("")
     else:
         print("No valid results computed.")
@@ -184,5 +187,5 @@ if __name__ == "__main__":
     # - "output/f1/narrative_qa/*.jsonl" - all jsonl files
     # - "output/f1/**/qwen*.json" - qwen files in any subdirectory
     
-    pattern = "output/f1/narrative_qa/phi*.json"
+    pattern = "output/f1/trvia_qa/glm*.json"
     evaluate_files_with_pattern(pattern)

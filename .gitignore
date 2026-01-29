@@ -2,3 +2,4 @@ datasets/
 output/
 bak/
 **/__pycache__/
+*.log
