@@ -1,3 +1,7 @@
+import csv
+import glob
+import os
+
 import numpy as np
 import torch
 from scipy.spatial.distance import cosine
@@ -212,27 +216,79 @@ def calculate_tensor_similarity(tensor_a, tensor_b):
     #     "Pearson Correlation": pearson_corr,
     # }
     return cos_sim
+
+
+def compute_input_delta_similarity_rows(
+    tensors,
+    input_id,
+    model_layer_num,
+    eh_sizes,
+):
+    rows = []
+    for eh_size in eh_sizes:
+        input_tensor_name = f"input{input_id}.et_size{eh_size}.cb_input"
+        output_tensor_name = f"input{input_id}.et_size{eh_size}.cb_output"
+
+        input_tensor = tensors[input_tensor_name]
+        output_tensor = tensors[output_tensor_name]
+
+        similarity = calculate_tensor_similarity(
+            convert_to_numpy(input_tensor),
+            convert_to_numpy(output_tensor),
+        )
+
+        rows.append(
+            {
+                "eh_size": eh_size,
+                "layer_pair": f"{eh_size}:{model_layer_num - eh_size}",
+                "input_tensor_name": input_tensor_name,
+                "output_tensor_name": output_tensor_name,
+                "cosine_similarity": float(similarity),
+            }
+        )
+    return rows
+
+
+def write_similarity_csv(rows, csv_path):
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    fieldnames = [
+        "eh_size",
+        "layer_pair",
+        "input_tensor_name",
+        "output_tensor_name",
+        "cosine_similarity",
+    ]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
     
 if __name__ == "__main__":
-    input_id = 7
+    input_id = 4
     model_layer_num = 64
-    tensors = load_file("./datasets/qwen_prefill_tensors.safetensors")
-    
-    data_dict = {}
-    for eh_size in range(1,13,1):
-        input_tensor_name = f"input{input_id}.et_size{eh_size}.cb_input"
-        output_tensor_name = f"input{input_id}.et_size{eh_size}.cb_output"
-        data_dict[f"{eh_size - 1 + 1}:{model_layer_num - eh_size}"] = calculate_tensor_similarity(convert_to_numpy(tensors[input_tensor_name]), convert_to_numpy(tensors[output_tensor_name]))
-        
-    plot_similarity_chart(data_dict, "Cosine Similarity between Different 2 Layer", "./output/similarity/layers_similarity.pdf")
-    
-    data_dict = {}
-    for eh_size in range(1,13,2):
-        input_tensor_name = f"input{input_id}.et_size{eh_size}.cb_input"
-        output_tensor_name = f"input{input_id}.et_size{eh_size}.cb_output"
-        data_dict[f"{eh_size - 1 + 1}:{model_layer_num - eh_size}"] = {}
-        data_dict[f"{eh_size - 1 + 1}:{model_layer_num - eh_size}"] = {
-            "Origin": tensors[output_tensor_name].abs().max().item(),
-            "Delta": (tensors[output_tensor_name] - tensors[input_tensor_name]).abs().max().item(),
-        }
-    plot_dual_bar_chart(data_dict, "Max Abs Value Comparison", "./output/similarity/layers_max_abs_comparison.pdf")
+
+    eh_sizes = list(range(1, 15, 1))
+    input_dir = "./output/tensor_data/"
+    input_files = sorted(
+        glob.glob(os.path.join(input_dir, "phi*.safetensors"))
+    )
+    # if not input_files:
+    #     input_files = [
+    #         "./output/tensor_data/qwen_prefill_tensors.safetensors",
+    #     ]
+
+    for safetensor_path in input_files:
+        tensors = load_file(safetensor_path)
+        rows = compute_input_delta_similarity_rows(
+            tensors=tensors,
+            input_id=input_id,
+            model_layer_num=model_layer_num,
+            eh_sizes=eh_sizes,
+        )
+
+        base_name = os.path.splitext(os.path.basename(safetensor_path))[0]
+        csv_path = os.path.join(
+            input_dir,
+            f"{base_name}_similarity.csv",
+        )
+        write_similarity_csv(rows, csv_path)

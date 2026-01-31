@@ -321,3 +321,44 @@ class NarrativeQALoader:
         """
         for item in self:
             yield item["input_ids"]
+
+
+class LongChatLoader:
+    def __init__(self, tokenizer, file_path, input_length=1024, split="test", device=None):
+        """
+        LongChat数据集加载器
+
+        Args:
+            tokenizer: 分词器
+            file_path: 本地jsonl文件路径
+            input_length: 每次yield的文本长度（按token计）
+            split: 数据集分割名称（jsonl通常只有一个split，可随意指定）
+            device: 设备（可选）
+        """
+        self.tokenizer = tokenizer
+        self.input_length = input_length
+        self.device = device
+
+        print(f"[Data] Loading local file: {file_path}")
+        self.dataset = load_dataset(
+            "json",
+            data_files={split: file_path},
+            split=split
+        )
+        print(f"[Data] Ready. Total samples loaded: {len(self.dataset)}")
+
+    def get_batches(self):
+        """
+        生成器：每次yield一个样本的input的input_length长度文本，并转换为input_ids
+        """
+        for sample in self.dataset:
+            text = sample.get("input", "")
+            if not text:
+                continue
+            ids = self.tokenizer.encode(text, add_special_tokens=False)
+            ids = ids[: self.input_length]
+            input_ids = torch.tensor(ids, dtype=torch.long).unsqueeze(0)
+            if self.device:
+                input_ids = input_ids.to(self.device)
+            yield input_ids
+

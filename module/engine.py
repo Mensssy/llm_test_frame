@@ -41,7 +41,8 @@ class BaseEngineMulti:
                 model_path,
                 device_map="auto",
                 dtype=torch.float16,     
-                attn_implementation="sdpa", 
+                # attn_implementation="sdpa", 
+                attn_implementation="flash_attention_2", 
                 trust_remote_code=True
             )
         
@@ -258,6 +259,10 @@ class BaseEngineMulti:
                 modified_hidden_states = dequant_hidden_states + aff_hid1
             elif edit_func == "INT2_Pertok":
                 modified_hidden_states, size_str = self.edit_tools.simulate_quant_int2_per_token(hidden_states, add_bytes=0)
+            elif edit_func == "FP4_Pertok":
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_fp4_per_token(hidden_states, add_bytes=0)
+            elif edit_func == "FP8_Pertok":
+                modified_hidden_states, size_str = self.edit_tools.simulate_quant_fp8_per_token(hidden_states, add_bytes=0)
             elif edit_func == "Base":
                 modified_hidden_states = None
                 size_str = f"{(hidden_states.numel() * hidden_states.element_size()) / (1024 * 1024)} MB"

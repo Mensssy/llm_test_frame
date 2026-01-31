@@ -3,7 +3,7 @@ Qwen-MoE LLM模拟器 - 使用重构后的模块
 注意：此模型需要多卡，使用BaseEngineMulti
 """
 from module.engine import BaseEngineMulti
-from module.loader import NarrativeQALoader, WikitextLoader, TriviaQALoader
+from module.loader import LongChatLoader, NarrativeQALoader, WikitextLoader, TriviaQALoader
 from run_test import run_test_suite
 
 
@@ -24,54 +24,57 @@ def main():
     engine.target_layer2 = TARGET_LAYERS[1]
     
     ##########################narrative_qa测试##########################
-    loader = NarrativeQALoader(
-        engine.tokenizer,
-        file_path=NARRATIVEQA_PATH,
-        use_context=True,
-        model=TEST_MODEL
-    )
-    TEST_DATASET = "narrative_qa"
+    # loader = NarrativeQALoader(
+    #     engine.tokenizer,
+    #     file_path=NARRATIVEQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
+    # TEST_DATASET = "narrative_qa"
     
-    # INT4_MixGp
-    TARGET_TESTS = [
-        "INT4_MixGp_Group",
-        "INT4_AffDelta_Group",
-        "INT8_Pertok",
-        "INT4_Pertok",
-    ]
-    test_types = ['f1']
-    engine.OUTLIER_METHOD = "group_topk"
+    # # INT4_MixGp
+    # TARGET_TESTS = [
+    #     # "INT4_MixGp_Group",
+    #     # "INT4_AffDelta_Group",
+    #     # "INT8_Pertok",
+    #     # "INT4_Pertok",
+    #     # "INT4_AffDelta_MixGp_Group",
+    #     "FP4_Pertok",
+    #     "FP8_Pertok"
+    # ]
+    # test_types = ['f1']
+    # engine.OUTLIER_METHOD = "group_topk"
     
-    print("Running test suite...")
-    results = run_test_suite(
-        engine=engine,
-        loader=loader,
-        target_tests=TARGET_TESTS,
-        target_layers=TARGET_LAYERS,
-        model_name=TEST_MODEL,
-        test_types=test_types,
-        output_len=64,
-        dataset=TEST_DATASET
-    )
+    # print("Running test suite...")
+    # results = run_test_suite(
+    #     engine=engine,
+    #     loader=loader,
+    #     target_tests=TARGET_TESTS,
+    #     target_layers=TARGET_LAYERS,
+    #     model_name=TEST_MODEL,
+    #     test_types=test_types,
+    #     output_len=64,
+    #     dataset=TEST_DATASET
+    # )
     
     # INT4_AffDelta_Mix
-    TARGET_TESTS = [
-        "INT4_AffDelta_Mix_Group",
-    ]
-    test_types = ['f1']
-    engine.OUTLIER_METHOD = "global_topk"
+    # TARGET_TESTS = [
+    #     "INT4_AffDelta_Mix_Group",
+    # ]
+    # test_types = ['f1']
+    # engine.OUTLIER_METHOD = "global_topk"
     
-    print("Running test suite...")
-    results = run_test_suite(
-        engine=engine,
-        loader=loader,
-        target_tests=TARGET_TESTS,
-        target_layers=TARGET_LAYERS,
-        model_name=TEST_MODEL,
-        test_types=test_types,
-        output_len=64,
-        dataset=TEST_DATASET
-    )
+    # print("Running test suite...")
+    # results = run_test_suite(
+    #     engine=engine,
+    #     loader=loader,
+    #     target_tests=TARGET_TESTS,
+    #     target_layers=TARGET_LAYERS,
+    #     model_name=TEST_MODEL,
+    #     test_types=test_types,
+    #     output_len=64,
+    #     dataset=TEST_DATASET
+    # )
     
     ##########################trivia_qa测试##########################
     loader = TriviaQALoader(
@@ -82,10 +85,12 @@ def main():
     )
     TEST_DATASET = "trvia_qa"
     TARGET_TESTS = [
-        "INT4_MixGp_Group",
-        "INT4_AffDelta_Group",
-        "INT8_Pertok",
-        "INT4_Pertok",
+        # "INT4_MixGp_Group",
+        # "INT4_AffDelta_Group",
+        # "INT8_Pertok",
+        # "INT4_Pertok",
+        "FP4_Pertok",
+        "FP8_Pertok"
     ]
     test_types = ['f1']
     engine.OUTLIER_METHOD = "group_topk"
@@ -102,12 +107,42 @@ def main():
     )
     
     # INT4_AffDelta_Mix
-    TARGET_TESTS = [
-        "INT4_AffDelta_Mix_Group",
-    ]
-    test_types = ['f1']
-    engine.OUTLIER_METHOD = "global_topk"
+    # TARGET_TESTS = [
+    #     "INT4_AffDelta_Mix_Group",
+    # ]
+    # test_types = ['f1']
+    # engine.OUTLIER_METHOD = "global_topk"
     
+    # print("Running test suite...")
+    # results = run_test_suite(
+    #     engine=engine,
+    #     loader=loader,
+    #     target_tests=TARGET_TESTS,
+    #     target_layers=TARGET_LAYERS,
+    #     model_name=TEST_MODEL,
+    #     test_types=test_types,
+    #     dataset=TEST_DATASET
+    # )
+    
+    #################################PPL测试#################################
+    loader = WikitextLoader(
+        engine.tokenizer, 
+        file_path=WIKI_PATH, 
+        seq_len=1024, 
+        model=TEST_MODEL
+    )
+    TEST_DATASET = "wikitext"
+    TARGET_TESTS = [
+        # "Base",
+        # "INT4_AffDelta_MixGp_Group",
+        # "INT8_Pertok",
+        # "INT4_Pertok",
+        "FP4_Pertok",
+        "FP8_Pertok",
+    ]
+    test_types = ['ppl']
+    engine.OUTLIER_METHOD = "group_topk"
+
     print("Running test suite...")
     results = run_test_suite(
         engine=engine,
@@ -129,10 +164,12 @@ def main():
     )
     TEST_DATASET = "wikitext"
     TARGET_TESTS = [
-        "Base",
-        "INT4_AffDelta_MixGp_Group",
-        "INT8_Pertok",
-        "INT4_Pertok",
+        # "Base",
+        # "INT4_AffDelta_MixGp_Group",
+        # "INT8_Pertok",
+        # "INT4_Pertok",
+        "FP4_Pertok",
+        "FP8_Pertok",
     ]
     test_types = ['size']
     engine.OUTLIER_METHOD = "group_topk"
@@ -152,28 +189,50 @@ def main():
     
         
     #################################save测试#################################
-    loader = WikitextLoader(
-        engine.tokenizer, 
-        file_path=WIKI_PATH, 
-        seq_len=1024, 
-        model=TEST_MODEL
-    )
-    TEST_DATASET = "wikitext"
-    TARGET_TESTS = [
-        "Base",
-    ]
-    test_types = ['tensor_save']
+    # loader = WikitextLoader(
+    #     engine.tokenizer, 
+    #     file_path=WIKI_PATH, 
+    #     seq_len=1024, 
+    #     model=TEST_MODEL
+    # )
+    # TEST_DATASET = "wikitext"
+    # loader = TriviaQALoader(
+    #     engine.tokenizer,
+    #     file_path=TRIVIAQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
+    # TEST_DATASET = "trvia_qa"
+    # loader = NarrativeQALoader(
+    #     engine.tokenizer,
+    #     file_path=NARRATIVEQA_PATH,
+    #     use_context=True,
+    #     model=TEST_MODEL
+    # )
+    # TEST_DATASET = "narrative_qa"
     
-    print("Running test suite...")
-    results = run_test_suite(
-        engine=engine,
-        loader=loader,
-        target_tests=TARGET_TESTS,
-        target_layers=TARGET_LAYERS,
-        model_name=TEST_MODEL,
-        test_types=test_types,
-        dataset=TEST_DATASET
-    )
+    # loader = LongChatLoader(
+    #     engine.tokenizer,
+    #     file_path="datasets/long_chat/topic_retrieval_longchat.jsonl",
+    # )
+    # TEST_DATASET = "long_chat"
+    
+    # TARGET_TESTS = [
+    #     "Base",
+    # ]
+    
+    # test_types = ['tensor_save']
+    
+    # print("Running test suite...")
+    # results = run_test_suite(
+    #     engine=engine,
+    #     loader=loader,
+    #     target_tests=TARGET_TESTS,
+    #     target_layers=TARGET_LAYERS,
+    #     model_name=TEST_MODEL,
+    #     test_types=test_types,
+    #     dataset=TEST_DATASET
+    # )
     
     print("\nAll tests completed!")
 

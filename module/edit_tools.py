@@ -1008,3 +1008,175 @@ class EditTools:
 
         x_recon = x_recon_flat.reshape(original_shape)
         return x_recon.to(torch.float16)
+
+    # ==========================================
+    # FP8 Per-Token 量化 (使用原生 float8_e4m3fn)
+    # ==========================================
+    def simulate_quant_fp8_per_token(self, hidden_states, add_bytes=0):
+        quant_res, size_str = self.quantize_per_token_fp8(hidden_states, add_bytes)
+        dequant_res = self.dequantize_per_token_fp8(quant_res)
+        return dequant_res, size_str
+
+    def quantize_per_token_fp8(self, tensor, add_bytes=0):
+        x = tensor.clone().float()
+        original_shape = x.shape
+        total_elements = x.numel()
+
+        # Flatten 
+        x_flat = x.reshape(-1, original_shape[-1])
+        
+        # FP8 E4M3 的最大表示范围大约是 448
+        # Per-Token Scaling: 
+        # 1. 找到每行的绝对值最大值
+        # 2. 计算 scale，将该行映射到 FP8 的最佳动态范围 [-448, 448]
+        max_val = x_flat.abs().max(dim=-1, keepdim=True)[0].clamp(min=1e-6)
+        fp8_max = 448.0 
+        scale = max_val / fp8_max
+
+        # 量化: 除以 scale -> 转换到 float8
+        # 注意：需要 PyTorch 支持 float8 (torch >= 2.1 且 GPU 支持)
+        # 如果不支持，这里会报错，需要回退到 int8 模拟
+        try:
+            x_scaled = (x_flat / scale)
+            x_q = x_scaled.to(torch.float8_e4m3fn) 
+        except (AttributeError, TypeError):
+            # Fallback for CPU or older torch: simulate with int8 but labeling as fp8 logic
+            print("Warning: torch.float8_e4m3fn not supported/available, simulating with int8 container.")
+            x_q = x_scaled.clamp(-fp8_max, fp8_max).round().to(torch.int8)
+
+        # 统计体积
+        body_payload_bytes = total_elements * 1  # FP8 is 1 byte per element
+        body_metadata_bytes = scale.numel() * 2  # FP16 scale
+        total_bytes = body_payload_bytes + body_metadata_bytes + add_bytes
+
+        if total_bytes < 1024:
+            size_str = f"{total_bytes:.0f} B"
+        elif total_bytes < 1024**2:
+            size_str = f"{total_bytes/1024:.2f} KB"
+        else:
+            size_str = f"{total_bytes/(1024**2):.2f} MB"
+
+        quantized_data = {
+            "q_data": x_q,
+            "scales": scale.half(),
+            "original_shape": original_shape,
+        }
+        return quantized_data, size_str
+
+    def dequantize_per_token_fp8(self, quantized_data):
+        x_q = quantized_data["q_data"]
+        scale = quantized_data["scales"].float()
+        original_shape = quantized_data["original_shape"]
+
+        # Dequantize: Cast back to float and multiply by scale
+        x_recon_flat = x_q.float() * scale
+        x_recon = x_recon_flat.reshape(original_shape)
+        
+        return x_recon.to(torch.float16)
+
+    # ==========================================
+    # FP4 Per-Token 量化 (模拟 E2M1, Bit-Packed)
+    # ==========================================
+    def simulate_quant_fp4_per_token(self, hidden_states, add_bytes=0):
+        quant_res, size_str = self.quantize_per_token_fp4(hidden_states, add_bytes)
+        dequant_res = self.dequantize_per_token_fp4(quant_res)
+        return dequant_res, size_str
+
+    def quantize_per_token_fp4(self, tensor, add_bytes=0):
+        x = tensor.clone().float()
+        original_shape = x.shape
+        total_elements = x.numel()
+
+        # =====================================================
+        # 【必须复制的核心逻辑】定义 FP4 E2M1 标准码本
+        # =====================================================
+        # 这些是 FP4 E2M1 标准对应的 16 个浮点数值
+        # 包含了负数部分和正数部分
+        fp4_values = [
+            -6.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5, 0.0,  # 索引 0-7
+            0.0,  0.5,  1.0,  1.5,  2.0,  3.0,  4.0, 6.0   # 索引 8-15
+        ]
+        # 【关键】创建 tensor 时，必须指定 device=x.device，否则会跨设备报错
+        codebook = torch.tensor(fp4_values, device=x.device, dtype=torch.float32)
+        # =====================================================
+
+        # Flatten
+        x_flat = x.reshape(-1, original_shape[-1])
+        seq_len, hidden = x_flat.shape
+
+        # 补齐 (Padding) 以便两两打包
+        effective_group_size = hidden
+        if effective_group_size % 2 != 0:
+            effective_group_size += 1
+        pad_len = effective_group_size - hidden
+        if pad_len > 0:
+            x_flat = torch.nn.functional.pad(x_flat, (0, pad_len))
+
+        # Scale 计算 (Max-abs)
+        fp4_max_val = 6.0
+        abs_max = x_flat.abs().max(dim=-1, keepdim=True)[0].clamp(min=1e-6)
+        scale = abs_max / fp4_max_val
+        
+        # 归一化
+        x_scaled = x_flat / scale
+
+        # 查表映射 (Mapping)
+        # 寻找 x_scaled 与 codebook 中哪个数最接近
+        # diff shape: (rows, cols, 16)
+        x_expanded = x_scaled.unsqueeze(-1)
+        diff = (x_expanded - codebook).abs()
+        x_indices = torch.argmin(diff, dim=-1).to(torch.uint8) # 得到 0-15 的索引
+
+        # 打包 (Packing): 2个4-bit拼成1个8-bit
+        x_q_high = x_indices[..., 0::2]
+        x_q_low = x_indices[..., 1::2]
+        x_packed = (x_q_high << 4) | x_q_low
+
+        # 计算体积字符串
+        body_payload_bytes = total_elements * 0.5
+        body_metadata_bytes = scale.numel() * 2 
+        total_bytes = body_payload_bytes + body_metadata_bytes + add_bytes
+
+        if total_bytes < 1024:
+            size_str = f"{total_bytes:.0f} B"
+        elif total_bytes < 1024**2:
+            size_str = f"{total_bytes/1024:.2f} KB"
+        else:
+            size_str = f"{total_bytes/(1024**2):.2f} MB"
+
+        quantized_data = {
+            "q_data": x_packed,
+            "scales": scale.half(),
+            "original_shape": original_shape,
+            "pad_len": pad_len,
+            # 把 codebook 存入结果中，这样反量化时直接从这里取，不需要反量化函数再定义一遍
+            "codebook": codebook 
+        }
+
+        return quantized_data, size_str
+
+    def dequantize_per_token_fp4(self, quantized_data):
+        x_packed = quantized_data["q_data"]
+        scale = quantized_data["scales"].float()
+        original_shape = quantized_data["original_shape"]
+        pad_len = quantized_data["pad_len"]
+        
+        # 直接从输入字典里拿 codebook，不需要在函数里重新定义
+        codebook = quantized_data["codebook"]
+
+        # 解包 (Unpacking)
+        x_index_high = (x_packed >> 4) & 0x0F
+        x_index_low = x_packed & 0x0F
+        x_indices = torch.stack((x_index_high, x_index_low), dim=-1).flatten(start_dim=-2)
+
+        # 查表恢复 (Lookup)
+        x_recon_flat = codebook[x_indices.long()]
+        
+        # 移除 Padding
+        if pad_len > 0:
+            x_recon_flat = x_recon_flat[:, :-pad_len]
+            
+        # 反归一化
+        x_recon = x_recon_flat * scale
+        
+        return x_recon.reshape(original_shape).to(torch.float16)

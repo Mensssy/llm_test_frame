@@ -115,7 +115,7 @@ class TestRunner:
             print(f">>> Finished {test} test.")
     
     
-    def run_tensor_save_test(self, input_ids_num=10, max_eh_et_len=20, 
+    def run_tensor_save_test(self, input_ids_num=10, max_eh_et_len=15, 
                              decode_test_layers=None, max_decode_len=10,
                              save_decode=False):
         """
