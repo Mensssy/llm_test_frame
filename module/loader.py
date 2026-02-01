@@ -215,7 +215,6 @@ class TriviaQALoader:
 class NarrativeQALoader:
     def __init__(self, tokenizer, file_path, use_context=False, max_samples=None, model="qwen", start_index=0):
         """
-        TriviaQA数据集加载器
         
         Args:
             tokenizer: 分词器

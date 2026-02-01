@@ -187,5 +187,5 @@ if __name__ == "__main__":
     # - "output/f1/narrative_qa/*.jsonl" - all jsonl files
     # - "output/f1/**/qwen*.json" - qwen files in any subdirectory
     
-    pattern = "output/f1/trvia_qa/phi_INT8_P*.json"
+    pattern = "output/f1/trvia_qa/qwen_moe_INT4_AffDelta*.json"
     evaluate_files_with_pattern(pattern)
