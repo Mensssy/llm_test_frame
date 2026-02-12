@@ -14,7 +14,7 @@ def read_similarity_csv(csv_path):
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            layer_pairs.append(row["layer_pair"])
+            layer_pairs.append(row["eh_size"])
             similarities.append(float(row["cosine_similarity"]))
     return layer_pairs, similarities
 
@@ -40,10 +40,24 @@ def collect_model_data(model_dir):
     return x_labels, datasets
 
 
-def plot_multi_model_similarity(root_dir, save_path, figsize=(8, 3)):
-    model_dirs = sorted(
-        d for d in glob.glob(os.path.join(root_dir, "*")) if os.path.isdir(d)
-    )
+def plot_multi_model_similarity(root_dir, save_path, figsize=(4, 2.8)):
+    all_model_dirs = {
+        os.path.basename(d): d
+        for d in glob.glob(os.path.join(root_dir, "*"))
+        if os.path.isdir(d)
+    }
+    desired_dataset_order = ["LongChat", "TriviaQA", "NarrativeQA", "Wikitext"]
+    model_dirs = []
+    for name in desired_dataset_order:
+        if name in all_model_dirs:
+            model_dirs.append(all_model_dirs[name])
+    
+    # If explicit list is empty (e.g. folder names don't match), fall back to sorted list
+    if not model_dirs:
+         model_dirs = sorted(
+            d for d in glob.glob(os.path.join(root_dir, "*")) if os.path.isdir(d)
+        )
+
     if not model_dirs:
         raise FileNotFoundError(f"No model folders found in {root_dir}")
 
@@ -51,36 +65,27 @@ def plot_multi_model_similarity(root_dir, save_path, figsize=(8, 3)):
         "font.family": "sans-serif",
         "font.sans-serif": ["Arial", "DejaVu Sans", "Liberation Sans"],
         "axes.unicode_minus": False,
-        "axes.labelsize": 14,
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
+        "axes.labelsize": 16,
+        "xtick.labelsize": 13,
+        "ytick.labelsize": 13,
         "legend.fontsize": 12,
     })
-
-    fig, axes = plt.subplots(
-        1,
-        len(model_dirs),
-        figsize=figsize,
-        layout="constrained",
-        sharey=True,
-    )
-
-    if len(model_dirs) == 1:
-        axes = [axes]
-
-    legend_handles = []
-    legend_labels = []
-    legend_y = -0.01
-    layout_engine = fig.get_layout_engine()
-    if layout_engine is not None:
-        layout_engine.set(rect=(0, 0.18, 1, 0.8))
 
     threshold_value = 0.7
     threshold_color = "#D62728"
 
     line_colors = ["#EE9817", "#1F77B4", "#2CA02C"]
 
-    for idx, (ax, model_dir) in enumerate(zip(axes, model_dirs)):
+    label_map = {
+        "Qwen-3": "Qwen3-30B-A3B",
+        "Phi-3.5": "Phi-3.5-MoE",
+        "GLM-4": "GLM-4-9B",
+    }
+    
+    # Desired order for legend
+    desired_order = ["Qwen3-30B-A3B", "Phi-3.5-MoE", "GLM-4-9B"]
+
+    for idx, model_dir in enumerate(model_dirs):
         model_name = os.path.basename(model_dir)
         x_labels, datasets = collect_model_data(model_dir)
         if not datasets:
@@ -88,10 +93,17 @@ def plot_multi_model_similarity(root_dir, save_path, figsize=(8, 3)):
 
         if x_labels is None:
             continue
+            
+        # Create a separate figure for each model
+        fig, ax = plt.subplots(figsize=figsize, layout="constrained")
 
         x_positions = np.arange(len(x_labels))
+        
+        legend_handles = []
+        legend_labels = []
 
         for data_idx, (dataset_name, (layer_pairs, similarities)) in enumerate(datasets.items()):
+            display_name = label_map.get(dataset_name, dataset_name)
             if layer_pairs != x_labels:
                 lookup = {lp: sim for lp, sim in zip(layer_pairs, similarities)}
                 aligned = [lookup.get(lp, np.nan) for lp in x_labels]
@@ -105,80 +117,66 @@ def plot_multi_model_similarity(root_dir, save_path, figsize=(8, 3)):
                 linewidth=1.6,
                 marker="o",
                 markersize=3.5,
-                label=dataset_name,
+                label=display_name,
             )
 
-            if dataset_name not in legend_labels:
+            if display_name not in legend_labels:
                 legend_handles.append(line)
-                legend_labels.append(dataset_name)
+                legend_labels.append(display_name)
 
-        ax.set_title(model_name, fontsize=12, fontweight="bold")
-        tick_indices = np.arange(0, len(x_labels), 4)
+        # ax.set_title(model_name, fontsize=12, fontweight="normal")
+        ax.set_xlabel("Number of Head and Tail Layers", fontsize=15)
+        ax.set_ylabel("Cosine Similarity", fontsize=16)
+        
+        tick_indices = np.arange(0, len(x_labels), 3)
         ax.set_xticks(tick_indices)
         ax.set_xticklabels(
             [x_labels[i] for i in tick_indices],
-            rotation=35,
+            rotation=0,
             ha="center",
-            # rotation_mode="anchor",
         )
-
-        ax.axhline(
-            y=threshold_value,
-            color=threshold_color,
-            linestyle=(0, (6, 6)),
-            linewidth=1.0,
-            zorder=1,
-        )
-        if idx == 3:
-            text_x = 0.98
-            text_ha = "right"
-            text_y = threshold_value - 0.025
-            text_va = "top"
-            text_transform = ax.get_yaxis_transform()
-            ax.text(
-            text_x,
-            text_y,
-            "strong similarity",
-            transform=text_transform,
-            ha=text_ha,
-            va=text_va,
-            fontsize=9,
-            color=threshold_color,
-            fontweight="bold",
-        )
-        else:
-            # text_x = 0.98
-            # text_ha = "right"
-            # text_y = threshold_value - 0.025
-            # text_va = "top"
-            # text_transform = ax.get_yaxis_transform()
-            pass
         
         ax.grid(axis="y", linestyle=(0, (4, 6)), linewidth=0.6, color="#B0B0B0")
 
         for spine in ax.spines.values():
             spine.set_color("#000000")
-            spine.set_linewidth(0.8)
+            spine.set_linewidth(1.0)
+            
+        # Legend Sorting and Placement
+        sorted_handles = []
+        sorted_labels = []
 
-    axes[0].set_ylabel("Cosine Similarity", fontsize=14)
-    fig.supxlabel(
-        r"Split Point $\langle k_{1}, k_{2} \rangle$",
-        fontsize=14,
-        y=0.11,
-    )
+        handle_map = dict(zip(legend_labels, legend_handles))
 
-    fig.legend(
-        legend_handles,
-        legend_labels,
-        loc="lower center",
-        bbox_to_anchor=(0.5, legend_y),
-        ncol=max(1, len(legend_labels)),
-        frameon=False,
-    )
+        for label in desired_order:
+            if label in handle_map:
+                sorted_labels.append(label)
+                sorted_handles.append(handle_map[label])
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    fig.savefig(save_path, dpi=300)
-    plt.close(fig)
+        # Add any others
+        for label in legend_labels:
+            if label not in sorted_labels:
+                sorted_labels.append(label)
+                sorted_handles.append(handle_map[label])
+
+        ax.legend(
+            sorted_handles,
+            sorted_labels,
+            loc="lower right",
+            frameon=True
+        )
+
+        # Construct specific save path
+        dir_name = os.path.dirname(save_path)
+        base_name = os.path.basename(save_path)
+        name_root, ext = os.path.splitext(base_name)
+        new_filename = f"{name_root}_{model_name}{ext}"
+        final_path = os.path.join(dir_name, new_filename)
+        
+        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+        fig.savefig(final_path, dpi=300)
+        plt.close(fig)
+        print(f"Saved figure: {final_path}")
 
 
 def parse_args():
@@ -187,7 +185,7 @@ def parse_args():
     )
     parser.add_argument(
         "--root_dir",
-        default="./output/tensor_data",
+        default="/home/spl/workspace/zmx/dev/zllm/output/tensor_data",
         help="Root directory containing model folders",
     )
     parser.add_argument(
@@ -199,5 +197,6 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    print("请确保在A800-2上运行")
     args = parse_args()
     plot_multi_model_similarity(args.root_dir, args.save_path)

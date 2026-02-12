@@ -174,9 +174,15 @@ class TestRunner:
                     self.engine.remove_hooks()
                     print(f">>> Finished {l} test.", flush=True)
                     
-        save_file(prefill_tensor_rcd, f"output/tensor_data/{self.model_name}_prefill_tensors.safetensors")
+        model_name_dict = {
+            "glm":"GLM-4",
+            "qwen_moe":"Qwen-3",
+            "phi":"Phi-3.5",
+        }
+                    
+        save_file(prefill_tensor_rcd, f"output/tensor_data/{model_name_dict.get(self.model_name, self.model_name)}_{self.dataset}_prefill_tensors.safetensors")
         if save_decode:
-            save_file(decode_tensor_rcd, f"output/tensor_data/{self.model_name}_decode_tensors.safetensors")
+            save_file(decode_tensor_rcd, f"output/tensor_data/{model_name_dict.get(self.model_name, self.model_name)}_{self.dataset}_decode_tensors.safetensors")
     
     def display_results(self):
         """显示测试结果表格"""
